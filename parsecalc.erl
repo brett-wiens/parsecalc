@@ -1,59 +1,47 @@
 -module(parsecalc).
--export([calculate/1]).
+-export([calculate/1,reduce/1,reduce/2,parse/1,parse/2]).
 
 calculate(CalcExpr) ->
-	reduce(parse_tokens(CalcExpr)).
+	reduce(parse(CalcExpr)).
 
-reduce([{expression,A}, {chartok,"+"}, {expression,B} | Rest]) ->
-	reduce([{expression,A+B}|Rest]);
-reduce([{expression,A}, {chartok,"-"}, {expression,B} | Rest]) ->
-	reduce([{expression,A-B}|Rest]);
-reduce([{expression,A}, {chartok,"*"}, {expression,B} | Rest]) ->
-	reduce([{expression,A*B}|Rest]);
-reduce([{expression,A}, {chartok,"/"}, {expression,B} | Rest]) ->
-	reduce([{expression,A/B}|Rest]);
-reduce([{chartok,"("},{expression,A},{chartok,")"} | Rest]) ->
-	reduce([{expression,A}|Rest]);
-reduce([{expression,A}, {chartok,B}, {chartok,"("} | Rest]) ->
-	reduce([{expression,A}, {chartok,B}, {expression,reduce(Rest)}]);
-reduce([{expression,A},{chartok,")"} | Rest]) ->
-	reduce([{expression,A} | Rest]);
-reduce([{expression,A}]) -> A.
+reduce(TokenList) -> reduce([],TokenList).
+reduce([{e,A}, {c,B} | Rest], [{e,C}]) -> reduce(Rest, [{e,A}, {c,B}, {e,C}]);
+reduce([{e,A}, {c,B} | LRest], [{e,C}, {c,")"} | RRest]) -> reduce(LRest,[{e,A},{c,B},{e,C}|RRest]);
+reduce(L,[{e,A},{c,")"} | Rest]) -> reduce(L,[{e,A} | Rest]);
+reduce(L,[{e,A}, {c,"*"}, {e,B} | Rest]) -> reduce(L,[{e,A*B}|Rest]);
+reduce(L,[{e,A}, {c,"/"}, {e,B} | Rest]) -> reduce(L,[{e,A/B}|Rest]);
+reduce(L,[{e,A}, {c,"+"}, {e,B} | Rest]) -> reduce(L,[{e,A+B}|Rest]);
+reduce(L,[{e,A}, {c,"-"}, {e,B} | Rest]) -> reduce(L,[{e,A-B}|Rest]);
+reduce(L,[{c,"("},{e,A},{c,")"} | Rest]) -> reduce(L,[{e,A}|Rest]);
+reduce(L,[{e,A}, {c,B}, {c,"("} | Rest]) -> reduce([{e,A}, {c,B} | L],Rest);
+reduce(L,[{c,"("} | Rest]) -> reduce([{e,0},{c,"+"}|L],Rest);
+reduce([],[{e,A}]) -> A.
 
-parse_tokens(CalcExpr) ->
-	parse_tokens(CalcExpr,[]).
-parse_tokens([],TokenList) -> TokenList;
-parse_tokens(CalcExpr,TokenList) -> parse_whitespace(CalcExpr,TokenList).
-
-parse_whitespace(CalcExpr,TokenList) ->
+parse(CalcExpr) -> parse(CalcExpr,[]).
+parse([],TokenList) -> TokenList;
+parse({w,CalcExpr},TokenList) ->
 	case re:run(CalcExpr,"^(\\s+)(.*)$",[{capture,all,list}]) of
-		{match,[_,_,Rest]} -> parse_tokens(Rest, TokenList);
-		nomatch -> parse_float(CalcExpr,TokenList) end.
-		
-parse_float(CalcExpr,TokenList) ->
+		{match,[_,_,Rest]} -> parse(Rest, TokenList);
+		nomatch -> parse({f,CalcExpr},TokenList) end;
+parse({f,CalcExpr},TokenList) ->
 	case re:run(CalcExpr,"^(\\d+\\.\\d+)(.*)$",[{capture,all,list}]) of
 		{match,[_,FloatString,Rest]} -> 
 			{FloatToken,[]} = string:to_float(FloatString),
-			parse_tokens(Rest, lists:append(TokenList,{expression,FloatToken}));
-		nomatch -> parse_int(CalcExpr,TokenList) end.
-	
-parse_int(CalcExpr,TokenList) ->
+			parse(Rest, TokenList++[{e,FloatToken}]);
+		nomatch -> parse({i,CalcExpr},TokenList) end;
+parse({i,CalcExpr},TokenList) ->
 	case re:run(CalcExpr,"^(\\d+)(.*)$",[{capture,all,list}]) of
 		{match,[_,IntString,Rest]} ->
 			{IntToken,_} = string:to_integer(IntString),
-			parse_tokens(Rest, lists:append(TokenList,[{expression,IntToken}]));
-		nomatch -> parse_chartok(CalcExpr,TokenList) end.
-		
-parse_chartok(CalcExpr,TokenList) ->
+			parse(Rest, TokenList++[{e,IntToken}]);
+		nomatch -> parse({c,CalcExpr},TokenList) end;
+parse({c,CalcExpr},TokenList) ->
 	case re:run(CalcExpr,"^([\\n+\\-*/()])(.*)$",[{capture,all,list}]) of
-		{match,[_,CharTok,Rest]} -> parse_tokens(Rest, lists:append(TokenList,[{chartok,CharTok}]));
-		nomatch -> parse_quit(CalcExpr,TokenList) end.
-		
-parse_quit(CalcExpr,TokenList) ->
+		{match,[_,CharTok,Rest]} -> parse(Rest, TokenList++[{c,CharTok}]);
+		nomatch -> parse({q,CalcExpr},TokenList) end;
+parse({q,CalcExpr},TokenList) ->
 	case re:run(CalcExpr,"^(quit|exit)(.*)$",[{caputre,all,list}]) of
-		{match,[_,_,Rest]} -> parse_tokens(Rest, lists:append(TokenList,quit));
-		nomatch -> [] end.
+		{match,[_,_,Rest]} -> parse(Rest, TokenList++[quit]);
+		nomatch -> [] end;
+parse(CalcExpr,TokenList) -> parse({w,CalcExpr},TokenList).
 		
-
-		
-
